@@ -278,7 +278,7 @@ local pHome = addPage("Anasayfa")
 local infoLbl = Instance.new("TextLabel")
 infoLbl.Size = UDim2.new(0.92, 0, 0, 110)
 infoLbl.BackgroundTransparency = 1
-infoLbl.Text = "Oyun: Adana Roleplay Lite\nYapımcı: qmiracxws\nDurum: Dinamik Kasa/ATM, VakıfBank Ön Kapı TP ve Akıllı Aimbot aktif."
+infoLbl.Text = "Oyun: Adana Roleplay Lite\nYapımcı: qmiracxws\nDurum: Dinamik Kasa/ATM, VakıfBank Ön Kapı TP, Akıllı Aimbot ve Araç Hitbox Düzeltmesi aktif."
 infoLbl.TextColor3 = Color3.fromRGB(220, 220, 220)
 infoLbl.TextSize = 12
 infoLbl.Font = Enum.Font.Gotham
@@ -721,7 +721,6 @@ local gunShopBtn = addButton(pTp, "Silahcı TP (Başlatılmadı)", function()
 	end
 end)
 
--- VakıfBank Ön Kapı TP Butonu (İçinde veya merkezinde değil, tam giriş ön kapısında doğacak)
 local vakifBtn = addButton(pTp, "Vakıf Bank Ön Kapı TP", function()
 	local char = player.Character
 	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -746,7 +745,6 @@ local vakifBtn = addButton(pTp, "Vakıf Bank Ön Kapı TP", function()
 	end
 	
 	if bankPos and bankCFrame then
-		-- Bankanın merkezinden biraz daha uzaklaştırılıp (mesafe 18 yapıldı) tam ana ön kapıya/dışarıya konumlandırıldı
 		local frontPos = bankPos + (bankCFrame.LookVector * 18) + Vector3.new(0, 3, 0)
 		
 		local rayOrigin = frontPos + Vector3.new(0, 15, 0)
@@ -773,27 +771,66 @@ end)
 local pHitbox = addPage("Hitbox")
 
 local hitboxSizeBox = addTextBox(pHitbox, "Hitbox Boyutu (Örn: 5)", "5")
-addButton(pHitbox, "Hitbox Büyüt", function()
+local hitboxActive = false
+local hitboxBtn
+
+hitboxBtn = addButton(pHitbox, "Hitbox Büyüt (Kapalı)", function()
+	hitboxActive = not hitboxActive
+	if hitboxActive then
+		hitboxBtn.Text = "Hitbox Büyüt (Açık)"
+	else
+		hitboxBtn.Text = "Hitbox Büyüt (Kapalı)"
+		-- Kapatıldığında herkesin hitbox'ını normale döndür
+		for _, otherPlayer in pairs(Players:GetPlayers()) do
+			if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
+				local hrp = otherPlayer.Character.HumanoidRootPart
+				hrp.Size = Vector3.new(2, 2, 1)
+				hrp.Transparency = 1
+				local hl = otherPlayer.Character:FindFirstChild("AselsanHitboxHighlight")
+				if hl then hl:Destroy() end
+			end
+		end
+	end
+end)
+
+-- Hitbox Güncelleme Döngüsü (Araç/Koltuk Kontrollü ve Donma Çözümlü)
+RunService.RenderStepped:Connect(function()
+	if not hitboxActive then return end
 	local sizeVal = tonumber(hitboxSizeBox.Text) or 5
+	
 	for _, otherPlayer in pairs(Players:GetPlayers()) do
-		if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
-			local hrp = otherPlayer.Character.HumanoidRootPart
-			hrp.Size = Vector3.new(sizeVal, sizeVal, sizeVal)
-			hrp.Transparency = 0.5
-			hrp.BrickColor = BrickColor.new("Bright red")
-			hrp.Color = Color3.fromRGB(255, 0, 0)
-			hrp.Material = Enum.Material.ForceField
+		if otherPlayer ~= player and otherPlayer.Character then
+			local char = otherPlayer.Character
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			local hum = char:FindFirstChildOfClass("Humanoid")
 			
-			if not otherPlayer.Character:FindFirstChild("AselsanHitboxHighlight") then
-				local hbHighlight = Instance.new("Highlight")
-				hbHighlight.Name = "AselsanHitboxHighlight"
-				hbHighlight.Adornee = otherPlayer.Character
-				hbHighlight.FillColor = Color3.fromRGB(255, 0, 0)
-				hbHighlight.FillTransparency = 0.4
-				hbHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-				hbHighlight.OutlineTransparency = 0
-				hbHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-				hbHighlight.Parent = otherPlayer.Character
+			if hrp and hum then
+				-- Eğer oyuncu bir araca bindiyse (oturuyorsa) hitbox'ı normale çevir ki donma/takılma olmasın
+				if hum.Sit or hum.SeatPart ~= nil then
+					hrp.Size = Vector3.new(2, 2, 1)
+					hrp.Transparency = 1
+					local hl = char:FindFirstChild("AselsanHitboxHighlight")
+					if hl then hl:Destroy() end
+				else
+					-- Araçta değilse normal büyük hitbox'ı uygula
+					hrp.Size = Vector3.new(sizeVal, sizeVal, sizeVal)
+					hrp.Transparency = 0.5
+					hrp.BrickColor = BrickColor.new("Bright red")
+					hrp.Color = Color3.fromRGB(255, 0, 0)
+					hrp.Material = Enum.Material.ForceField
+					
+					if not char:FindFirstChild("AselsanHitboxHighlight") then
+						local hbHighlight = Instance.new("Highlight")
+						hbHighlight.Name = "AselsanHitboxHighlight"
+						hbHighlight.Adornee = char
+						hbHighlight.FillColor = Color3.fromRGB(255, 0, 0)
+						hbHighlight.FillTransparency = 0.4
+						hbHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+						hbHighlight.OutlineTransparency = 0
+						hbHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+						hbHighlight.Parent = char
+					end
+				end
 			end
 		end
 	end
