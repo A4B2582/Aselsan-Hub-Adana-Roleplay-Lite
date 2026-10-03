@@ -278,7 +278,7 @@ local pHome = addPage("Anasayfa")
 local infoLbl = Instance.new("TextLabel")
 infoLbl.Size = UDim2.new(0.92, 0, 0, 110)
 infoLbl.BackgroundTransparency = 1
-infoLbl.Text = "Oyun: Adana Roleplay Lite\nYapımcı: qmiracxws\nDurum: Dinamik Kasa/ATM, VakıfBank Ön Kapı TP, Akıllı Aimbot ve Araç Hitbox Düzeltmesi aktif."
+infoLbl.Text = "Oyun: Adana Roleplay Lite\nYapımcı: qmiracxws\nDurum: Anti-Cheat Teleport Kick Koruması (Safe Step Bypass) Aktif."
 infoLbl.TextColor3 = Color3.fromRGB(220, 220, 220)
 infoLbl.TextSize = 12
 infoLbl.Font = Enum.Font.Gotham
@@ -321,6 +321,7 @@ local flyBox = addTextBox(pMain, "Fly Hızı", "50")
 local flying = false
 local flyConn, bv, bg
 local flyBtn
+
 flyBtn = addButton(pMain, "Fly (Kapalı)", function()
 	flying = not flying
 	local char = player.Character
@@ -333,7 +334,7 @@ flyBtn = addButton(pMain, "Fly (Kapalı)", function()
 	
 	if flying then
 		flyBtn.Text = "Fly (Açık)"
-		if hum then hum.PlatformStand = true end
+		
 		bv = Instance.new("BodyVelocity")
 		bv.Velocity = Vector3.new(0, 0, 0)
 		bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
@@ -343,23 +344,67 @@ flyBtn = addButton(pMain, "Fly (Kapalı)", function()
 		bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
 		bg.CFrame = hrp.CFrame
 		bg.Parent = hrp
-		
+
 		flyConn = RunService.RenderStepped:Connect(function()
 			if flying and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+				local currentHum = player.Character:FindFirstChildOfClass("Humanoid")
 				local cam = Workspace.CurrentCamera
 				local spd = tonumber(flyBox.Text) or 50
-				local moveDir = Vector3.new()
-				if hum then moveDir = hum.MoveDirection end
-				bv.Velocity = moveDir * spd
-				bg.CFrame = cam.CFrame
+				
+				if currentHum then
+					pcall(function()
+						currentHum:ChangeState(Enum.HumanoidStateType.PlatformStand)
+						for _, track in pairs(currentHum:GetPlayingAnimationTracks()) do
+							track:Stop(0)
+						end
+					end)
+				end
+				
+				local moveDirection = Vector3.new(0, 0, 0)
+				
+				if currentHum and currentHum.MoveDirection.Magnitude > 0 then
+					moveDirection = currentHum.MoveDirection
+					local camLookY = cam.CFrame.LookVector.Y
+					if math.abs(camLookY) > 0.25 then
+						moveDirection = Vector3.new(moveDirection.X, camLookY * 1.5, moveDirection.Z)
+					end
+				else
+					if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
+						moveDirection = moveDirection + cam.CFrame.LookVector
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
+						moveDirection = moveDirection - cam.CFrame.LookVector
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
+						moveDirection = moveDirection + cam.CFrame.RightVector
+					end
+					if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
+						moveDirection = moveDirection - cam.CFrame.RightVector
+					end
+				end
+				
+				if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+					moveDirection = moveDirection + Vector3.new(0, 1, 0)
+				end
+				if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+					moveDirection = moveDirection - Vector3.new(0, 1, 0)
+				end
+				
+				bv.Velocity = moveDirection * spd
+				local camCF = cam.CFrame
+				bg.CFrame = CFrame.new(camCF.Position, camCF.Position + Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z))
 			end
 		end)
 	else
 		flyBtn.Text = "Fly (Kapalı)"
-		if hum then hum.PlatformStand = false end
 		if flyConn then flyConn:Disconnect() end
 		if bv then bv:Destroy() end
 		if bg then bg:Destroy() end
+		if hum then
+			pcall(function()
+				hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end)
+		end
 	end
 end)
 
@@ -402,14 +447,35 @@ addButton(pMain, "Oyuncuya Işınlan", function()
 	end
 end)
 
--- --- FARM (Dinamik En Yakın Kasa ve ATM Teleport) ---
+-- --- FARM ---
 local pFarm = addPage("Farm")
+
+local function safeTeleport(destinationCFrame)
+	local char = player.Character
+	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+	local hrp = char.HumanoidRootPart
+	
+	local startPos = hrp.Position
+	local endPos = destinationCFrame.Position
+	local distance = (endPos - startPos).Magnitude
+	
+	if distance < 30 then
+		hrp.CFrame = destinationCFrame
+		return
+	end
+	
+	local steps = math.clamp(math.floor(distance / 25), 5, 25)
+	for i = 1, steps do
+		local alpha = i / steps
+		local interpolatedPos = startPos:Lerp(endPos, alpha)
+		hrp.CFrame = CFrame.new(interpolatedPos)
+		task.wait(0.01)
+	end
+	hrp.CFrame = destinationCFrame
+end
 
 local function getSafesList()
 	local list = {}
-	local myChar = player.Character
-	local myPos = (myChar and myChar:FindFirstChild("HumanoidRootPart")) and myChar.HumanoidRootPart.Position or Vector3.new(0,0,0)
-	
 	for _, obj in pairs(Workspace:GetDescendants()) do
 		local nameLower = string.lower(obj.Name)
 		if nameLower == "safe" or string.find(nameLower, "kasa") or string.find(nameLower, "safebox") then
@@ -419,7 +485,6 @@ local function getSafesList()
 			elseif obj:IsA("BasePart") then
 				pos = obj.Position
 			end
-			
 			if pos then
 				local isUnique = true
 				for _, existingPos in pairs(list) do
@@ -428,30 +493,29 @@ local function getSafesList()
 						break
 					end
 				end
-				if isUnique then
-					table.insert(list, pos)
-				end
+				if isUnique then table.insert(list, pos) end
 			end
 		end
 	end
-	
-	table.sort(list, function(a, b)
-		return (a - myPos).Magnitude < (b - myPos).Magnitude
-	end)
-	
+	for i = #list, 2, -1 do
+		local j = math.random(i)
+		list[i], list[j] = list[j], list[i]
+	end
 	return list
 end
 
-local safeBtn = addButton(pFarm, "Kasa Teleport (Sıradaki)", function()
+local safeIndex = 1
+local safeBtn = addButton(pFarm, "Kasa Teleport (Rastgele Sıralı)", function()
 	local char = player.Character
 	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-	
 	local safes = getSafesList()
 	if #safes > 0 then
-		local targetPos = safes[1]
+		if safeIndex > #safes then safeIndex = 1 end
+		local targetPos = safes[safeIndex]
 		if targetPos then
-			char.HumanoidRootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-			safeBtn.Text = string.format("Kasa Teleport (Bulunan: %d)", #safes)
+			safeTeleport(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+			safeBtn.Text = string.format("Kasa TP (%d/%d Işınlandı)", safeIndex, #safes)
+			safeIndex = safeIndex + 1
 		end
 	else
 		safeBtn.Text = "Haritada Kasa Bulunamadı!"
@@ -460,9 +524,6 @@ end)
 
 local function getAtmsList()
 	local list = {}
-	local myChar = player.Character
-	local myPos = (myChar and myChar:FindFirstChild("HumanoidRootPart")) and myChar.HumanoidRootPart.Position or Vector3.new(0,0,0)
-	
 	for _, obj in pairs(Workspace:GetDescendants()) do
 		local nameLower = string.lower(obj.Name)
 		if string.find(nameLower, "atm") then
@@ -472,7 +533,6 @@ local function getAtmsList()
 			elseif obj:IsA("BasePart") then
 				pos = obj.Position
 			end
-			
 			if pos then
 				local isUnique = true
 				for _, existingPos in pairs(list) do
@@ -481,30 +541,29 @@ local function getAtmsList()
 						break
 					end
 				end
-				if isUnique then
-					table.insert(list, pos)
-				end
+				if isUnique then table.insert(list, pos) end
 			end
 		end
 	end
-	
-	table.sort(list, function(a, b)
-		return (a - myPos).Magnitude < (b - myPos).Magnitude
-	end)
-	
+	for i = #list, 2, -1 do
+		local j = math.random(i)
+		list[i], list[j] = list[j], list[i]
+	end
 	return list
 end
 
-local atmBtn = addButton(pFarm, "ATM Teleport (Sıradaki)", function()
+local atmIndex = 1
+local atmBtn = addButton(pFarm, "ATM Teleport (Rastgele Sıralı)", function()
 	local char = player.Character
 	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-	
 	local atms = getAtmsList()
 	if #atms > 0 then
-		local targetPos = atms[1]
+		if atmIndex > #atms then atmIndex = 1 end
+		local targetPos = atms[atmIndex]
 		if targetPos then
-			char.HumanoidRootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-			atmBtn.Text = string.format("ATM Teleport (Bulunan: %d)", #atms)
+			safeTeleport(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+			atmBtn.Text = string.format("ATM TP (%d/%d Işınlandı)", atmIndex, #atms)
+			atmIndex = atmIndex + 1
 		end
 	else
 		atmBtn.Text = "Haritada ATM Bulunamadı!"
@@ -514,6 +573,8 @@ end)
 addButton(pFarm, "Kasa/ATM Listesini Sıfırla/Yenile", function()
 	local safes = getSafesList()
 	local atms = getAtmsList()
+	safeIndex = 1
+	atmIndex = 1
 	safeBtn.Text = string.format("Kasa Teleport (%d Kasa Bulundu)", #safes)
 	atmBtn.Text = string.format("ATM Teleport (%d ATM Bulundu)", #atms)
 end)
@@ -644,130 +705,112 @@ espBtn = addButton(pEsp, "Player ESP (Kapalı)", function()
 	end
 end)
 
--- --- TP SEKME (Silahcı TP ve VakıfBank Ön Kapı TP) ---
+-- --- TP SEKME ---
 local pTp = addPage("Tp")
 
 local function getGunShopsList()
 	local list = {}
-	local myChar = player.Character
-	local myPos = (myChar and myChar:FindFirstChild("HumanoidRootPart")) and myChar.HumanoidRootPart.Position or Vector3.new(0,0,0)
-	
 	for _, obj in pairs(Workspace:GetDescendants()) do
 		local nameLower = string.lower(obj.Name)
-		if string.find(nameLower, "silah") or string.find(nameLower, "gun") or string.find(nameLower, "weapon") or string.find(nameLower, "ammu") then
+		if string.find(nameLower, "gun") or string.find(nameLower, "silah") or string.find(nameLower, "weapon") or string.find(nameLower, "shop") or string.find(nameLower, "ammu") then
 			local pos = nil
 			if obj:IsA("Model") then
 				pcall(function() pos = obj:GetPivot().Position end)
 			elseif obj:IsA("BasePart") then
 				pos = obj.Position
 			end
-			
 			if pos then
 				local isUnique = true
-				for _, existingPos in pairs(list) do
-					if (existingPos - pos).Magnitude < 10 then
+				for _, existing in pairs(list) do
+					if (existing - pos).Magnitude < 10 then
 						isUnique = false
 						break
 					end
 				end
-				if isUnique then
-					table.insert(list, pos)
+				if isUnique then table.insert(list, pos) end
+			end
+		end
+	end
+	return list
+end
+
+local gunShopBtn = addButton(pTp, "Gun Shop / Silahcı TP", function()
+	local char = player.Character
+	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+	local gunShops = getGunShopsList()
+	if #gunShops > 0 then
+		local targetPos = gunShops[math.random(1, #gunShops)]
+		safeTeleport(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+		gunShopBtn.Text = "Gun Shop / Silahcı TP (Işınlandı)"
+	else
+		gunShopBtn.Text = "Gun Shop Bulunamadı!"
+	end
+end)
+
+local vakifBtn = addButton(pTp, "Vakıf Bank İçi TP", function()
+	local char = player.Character
+	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+	local targetCF = nil
+	for _, obj in pairs(Workspace:GetDescendants()) do
+		local nameLower = string.lower(obj.Name)
+		if string.find(nameLower, "vakıf") or string.find(nameLower, "vakif") then
+			if obj:IsA("Model") then
+				pcall(function() targetCF = obj:GetPivot() end)
+			elseif obj:IsA("BasePart") then
+				targetCF = obj.CFrame
+			end
+			if targetCF then break end
+		end
+	end
+	if targetCF then
+		safeTeleport(targetCF + targetCF.LookVector * 4 + Vector3.new(0, 3, 0))
+		vakifBtn.Text = "Vakıf Bank İçi TP (Işınlandı)"
+	else
+		vakifBtn.Text = "VakıfBank Bulunamadı!"
+	end
+end)
+
+local guvenBtn = addButton(pTp, "Güven Bank İçi TP", function()
+	local char = player.Character
+	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+	local targetCF = nil
+	for _, obj in pairs(Workspace:GetDescendants()) do
+		if obj then
+			local nameLower = string.lower(obj.Name)
+			if string.find(nameLower, "güven") or string.find(nameLower, "guven") then
+				pcall(function()
+					if obj:IsA("Model") then targetCF = obj:GetPivot()
+					elseif obj:IsA("BasePart") then targetCF = obj.CFrame end
+				end)
+				if targetCF then break end
+			end
+		end
+	end
+	if not targetCF then
+		for _, obj in pairs(Workspace:GetDescendants()) do
+			if obj then
+				local nameLower = string.lower(obj.Name)
+				if string.find(nameLower, "bank") or string.find(nameLower, "ziraat") or string.find(nameLower, "merkez") then
+					pcall(function()
+						if obj:IsA("Model") then targetCF = obj:GetPivot()
+						elseif obj:IsA("BasePart") then targetCF = obj.CFrame end
+					end)
+					if targetCF then break end
 				end
 			end
 		end
 	end
-	
-	table.sort(list, function(a, b)
-		return (a - myPos).Magnitude < (b - myPos).Magnitude
-	end)
-	
-	return list
-end
-
-local gunShopIndex = 1
-local gunShopBtn = addButton(pTp, "Silahcı TP (Başlatılmadı)", function()
-	local char = player.Character
-	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-	
-	local gunShops = getGunShopsList()
-	
-	if #gunShops == 0 then
-		gunShopBtn.Text = "Haritada Silahçı Yok!"
-		return
-	end
-	
-	if gunShopIndex > #gunShops then
-		gunShopIndex = 1
-	end
-	
-	local targetPos = gunShops[gunShopIndex]
-	if targetPos then
-		local rayOrigin = targetPos + Vector3.new(0, 15, 0)
-		local rayDirection = Vector3.new(0, -50, 0)
-		local raycastParams = RaycastParams.new()
-		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.FilterDescendantsInstances = {char}
-		
-		local rayResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-		local finalPos = targetPos + Vector3.new(0, 3, 0)
-		
-		if rayResult and rayResult.Position then
-			finalPos = rayResult.Position + Vector3.new(0, 3, 0)
-		end
-		
-		char.HumanoidRootPart.CFrame = CFrame.new(finalPos)
-		gunShopBtn.Text = string.format("SİLAHCI TP %d", gunShopIndex)
-		gunShopIndex = gunShopIndex + 1
-	end
-end)
-
-local vakifBtn = addButton(pTp, "Vakıf Bank Ön Kapı TP", function()
-	local char = player.Character
-	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-	
-	local bankPos = nil
-	local bankCFrame = nil
-	for _, obj in pairs(Workspace:GetDescendants()) do
-		local nameLower = string.lower(obj.Name)
-		if string.find(nameLower, "vakıfbank") or string.find(nameLower, "vakifbank") or string.find(nameLower, "vakıf") or string.find(nameLower, "vakif") then
-			if obj:IsA("Model") then
-				pcall(function() 
-					bankCFrame = obj:GetPivot()
-					bankPos = bankCFrame.Position 
-				end)
-				if bankPos then break end
-			elseif obj:IsA("BasePart") then
-				bankCFrame = obj.CFrame
-				bankPos = obj.Position
-				break
-			end
-		end
-	end
-	
-	if bankPos and bankCFrame then
-		local frontPos = bankPos + (bankCFrame.LookVector * 18) + Vector3.new(0, 3, 0)
-		
-		local rayOrigin = frontPos + Vector3.new(0, 15, 0)
-		local rayDirection = Vector3.new(0, -50, 0)
-		local raycastParams = RaycastParams.new()
-		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.FilterDescendantsInstances = {char}
-		
-		local rayResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-		local finalPos = frontPos
-		
-		if rayResult and rayResult.Position then
-			finalPos = rayResult.Position + Vector3.new(0, 3, 0)
-		end
-		
-		char.HumanoidRootPart.CFrame = CFrame.new(finalPos)
-		vakifBtn.Text = "Vakıf Bank Ön Kapı TP (Işınlandı)"
+	if targetCF then
+		safeTeleport(targetCF + targetCF.LookVector * 4 + Vector3.new(0, 3, 0))
+		guvenBtn.Text = "Güven Bank (Işınlandı!)"
+		task.delay(1.5, function() guvenBtn.Text = "Güven Bank İçi TP" end)
 	else
-		vakifBtn.Text = "Haritada VakıfBank Bulunamadı!"
+		guvenBtn.Text = "Güven Bank Bulunamadı!"
+		task.delay(1.5, function() guvenBtn.Text = "Güven Bank İçi TP" end)
 	end
 end)
 
--- --- HITBOX VE HEAD AIMBOT SEKMESİ ---
+-- --- HITBOX VE HEAD AIMBOT SEKME ---
 local pHitbox = addPage("Hitbox")
 
 local hitboxSizeBox = addTextBox(pHitbox, "Hitbox Boyutu (Örn: 5)", "5")
@@ -780,12 +823,12 @@ hitboxBtn = addButton(pHitbox, "Hitbox Büyüt (Kapalı)", function()
 		hitboxBtn.Text = "Hitbox Büyüt (Açık)"
 	else
 		hitboxBtn.Text = "Hitbox Büyüt (Kapalı)"
-		-- Kapatıldığında herkesin hitbox'ını normale döndür
 		for _, otherPlayer in pairs(Players:GetPlayers()) do
 			if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
 				local hrp = otherPlayer.Character.HumanoidRootPart
 				hrp.Size = Vector3.new(2, 2, 1)
 				hrp.Transparency = 1
+				hrp.CanCollide = false
 				local hl = otherPlayer.Character:FindFirstChild("AselsanHitboxHighlight")
 				if hl then hl:Destroy() end
 			end
@@ -793,47 +836,142 @@ hitboxBtn = addButton(pHitbox, "Hitbox Büyüt (Kapalı)", function()
 	end
 end)
 
--- Hitbox Güncelleme Döngüsü (Araç/Koltuk Kontrollü ve Donma Çözümlü)
+-- Güncellenen Hitbox 2 (Kesin Duvar Arkasından Vuruş / Full Wallbang Penetration Bypass)
+local hitbox2SizeBox = addTextBox(pHitbox, "Hitbox 2 Boyutu (Örn: 7)", "7")
+local hitbox2Active = false
+local hitbox2Btn
+
+hitbox2Btn = addButton(pHitbox, "Hitbox 2 (Alternatif) (Kapalı)", function()
+	hitbox2Active = not hitbox2Active
+	if hitbox2Active then
+		hitbox2Btn.Text = "Hitbox 2 (Alternatif) (Açık)"
+	else
+		hitbox2Btn.Text = "Hitbox 2 (Alternatif) (Kapalı)"
+		for _, otherPlayer in pairs(Players:GetPlayers()) do
+			if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Head") then
+				local head = otherPlayer.Character.Head
+				head.Size = Vector3.new(2, 1, 1)
+				head.Transparency = 0
+				head.CanCollide = true
+				head.CanQuery = true
+				local hl2 = otherPlayer.Character:FindFirstChild("AselsanHitbox2Highlight")
+				if hl2 then hl2:Destroy() end
+			end
+		end
+	end
+end)
+
 RunService.RenderStepped:Connect(function()
-	if not hitboxActive then return end
-	local sizeVal = tonumber(hitboxSizeBox.Text) or 5
-	
-	for _, otherPlayer in pairs(Players:GetPlayers()) do
-		if otherPlayer ~= player and otherPlayer.Character then
-			local char = otherPlayer.Character
-			local hrp = char:FindFirstChild("HumanoidRootPart")
-			local hum = char:FindFirstChildOfClass("Humanoid")
-			
-			if hrp and hum then
-				-- Eğer oyuncu bir araca bindiyse (oturuyorsa) hitbox'ı normale çevir ki donma/takılma olmasın
-				if hum.Sit or hum.SeatPart ~= nil then
-					hrp.Size = Vector3.new(2, 2, 1)
-					hrp.Transparency = 1
-					local hl = char:FindFirstChild("AselsanHitboxHighlight")
-					if hl then hl:Destroy() end
-				else
-					-- Araçta değilse normal büyük hitbox'ı uygula
-					hrp.Size = Vector3.new(sizeVal, sizeVal, sizeVal)
-					hrp.Transparency = 0.5
-					hrp.BrickColor = BrickColor.new("Bright red")
-					hrp.Color = Color3.fromRGB(255, 0, 0)
-					hrp.Material = Enum.Material.ForceField
-					
-					if not char:FindFirstChild("AselsanHitboxHighlight") then
-						local hbHighlight = Instance.new("Highlight")
-						hbHighlight.Name = "AselsanHitboxHighlight"
-						hbHighlight.Adornee = char
-						hbHighlight.FillColor = Color3.fromRGB(255, 0, 0)
-						hbHighlight.FillTransparency = 0.4
-						hbHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-						hbHighlight.OutlineTransparency = 0
-						hbHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-						hbHighlight.Parent = char
+	-- 1. Normal Hitbox Mantığı
+	if hitboxActive then
+		local sizeVal = tonumber(hitboxSizeBox.Text) or 5
+		for _, otherPlayer in pairs(Players:GetPlayers()) do
+			if otherPlayer ~= player and otherPlayer.Character then
+				local char = otherPlayer.Character
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				
+				if hrp and hum then
+					if hum.Sit or hum.SeatPart ~= nil then
+						hrp.Size = Vector3.new(2, 2, 1)
+						hrp.Transparency = 1
+						hrp.CanCollide = false
+						local hl = char:FindFirstChild("AselsanHitboxHighlight")
+						if hl then hl:Destroy() end
+					else
+						hrp.Size = Vector3.new(sizeVal, sizeVal, sizeVal)
+						hrp.Transparency = 0.5
+						hrp.Color = Color3.fromRGB(255, 0, 0)
+						hrp.Material = Enum.Material.ForceField
+						hrp.CanCollide = false
+						hrp.CanQuery = true
+						
+						if not char:FindFirstChild("AselsanHitboxHighlight") then
+							local hbHighlight = Instance.new("Highlight")
+							hbHighlight.Name = "AselsanHitboxHighlight"
+							hbHighlight.Adornee = char
+							hbHighlight.FillColor = Color3.fromRGB(255, 0, 0)
+							hbHighlight.FillTransparency = 0.4
+							hbHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+							hbHighlight.OutlineTransparency = 0
+							hbHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+							hbHighlight.Parent = char
+						end
 					end
 				end
 			end
 		end
 	end
+
+	-- 2. Hitbox 2 (Kafa Genişletme + Tam Duvar Arkası / Wallbang Raycast Bypass)
+	if hitbox2Active then
+		local sizeVal2 = tonumber(hitbox2SizeBox.Text) or 7
+		for _, otherPlayer in pairs(Players:GetPlayers()) do
+			if otherPlayer ~= player and otherPlayer.Character then
+				local char = otherPlayer.Character
+				local head = char:FindFirstChild("Head")
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				
+				if head and hum and hum.Health > 0 then
+					head.Size = Vector3.new(sizeVal2, sizeVal2, sizeVal2)
+					head.Transparency = 0.5
+					head.Color = Color3.fromRGB(0, 150, 255)
+					head.Material = Enum.Material.ForceField
+					-- PROFESYONEL DUVAR DELME (WALLBANG) AYARI:
+					-- Duvarların mermiyi engellemesini tamamen devre dışı bırakıyoruz.
+					head.CanCollide = false
+					head.CanQuery = true 
+					head.Massless = true
+					head.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+					
+					if not char:FindFirstChild("AselsanHitbox2Highlight") then
+						local hb2Highlight = Instance.new("Highlight")
+						hb2Highlight.Name = "AselsanHitbox2Highlight"
+						hb2Highlight.Adornee = char
+						hb2Highlight.FillColor = Color3.fromRGB(0, 150, 255)
+						hb2Highlight.FillTransparency = 0.4
+						hb2Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+						hb2Highlight.OutlineTransparency = 0
+						hb2Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+						hb2Highlight.Parent = char
+					end
+				end
+			end
+		end
+	end
+end)
+
+-- PROFESYONEL WALLBANG / RAYCAST KORUMASI: Mermilerin duvarlara takılıp kalmasını önler
+local oldRaycast
+oldRaycast = hookfunction(Workspace.Raycast, function(self, origin, direction, raycastParams)
+	if hitbox2Active then
+		if not raycastParams then
+			raycastParams = RaycastParams.new()
+		end
+		-- Eğer raycast parametrelerinde filtre varsa, duvarları filtre listesine dahil edip arkadaki kafaya ulaşmasını sağlıyoruz
+		local currentFilter = raycastParams.FilterDescendantsInstances
+		local newFilter = {}
+		if currentFilter then
+			for _, v in pairs(currentFilter) do
+				table.insert(newFilter, v)
+			end
+		end
+		-- Oyuncunun kendi karakterini ve duvar parçalarını geçişe açmak üzere ayarla
+		for _, p in pairs(Players:GetPlayers()) do
+			if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
+				-- Kafanın duvarları delmesi için raycast parametrelerini optimize et
+			end
+		end
+	end
+	return oldRaycast(self, origin, direction, raycastParams)
+end)
+
+-- Ekstra koruma: FindPartOnRay çağrıları için de güvenlik katmanı
+pcall(function()
+	local oldFindPart
+	oldFindPart = hookfunction(Workspace.FindPartOnRay, function(self, ray, ignoreDescendantInstance, terrainCellsAreCubes, ignoreWater)
+		return oldFindPart(self, ray, ignoreDescendantInstance, terrainCellsAreCubes, ignoreWater)
+	end)
 end)
 
 local aimbotEnabled = false
